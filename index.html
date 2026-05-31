@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#101418">
+<link rel="manifest" href="manifest.json">
+<title>STORE/PICKER — 店舗抽出ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Noto+Sans+JP:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c232c; --line:#2d3540; --line2:#3d4757;
+  --ink:#e6edf3; --sub:#7d8590; --accent:#ff5630; --accent2:#36b9ff; --ok:#3fb950; --warn:#d29922;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:'Noto Sans JP',sans-serif;min-height:100vh;line-height:1.6}
+.wrap{max-width:1500px;margin:0 auto;padding:0 22px}
+/* HEADER */
+header{border-bottom:1px solid var(--line);padding:26px 0 18px;position:relative;overflow:hidden}
+header::after{content:'';position:absolute;right:-40px;top:-20px;width:280px;height:140px;background:radial-gradient(circle,rgba(255,86,48,.18),transparent 70%);pointer-events:none}
+.brand{display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+.brand h1{font-family:'Anton',sans-serif;font-size:clamp(34px,6vw,58px);line-height:.92;letter-spacing:.01em;text-transform:uppercase}
+.brand h1 em{color:var(--accent);font-style:normal}
+.brand .ja{font-size:12px;color:var(--sub);letter-spacing:.34em;font-weight:700}
+.tagline{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--sub);margin-top:9px;letter-spacing:.06em}
+.tagline b{color:var(--accent2)}
+/* STEP */
+.step{display:flex;align-items:center;gap:13px;margin:32px 0 14px}
+.step .num{font-family:'Anton',sans-serif;font-size:15px;background:var(--accent);color:#fff;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:3px}
+.step .t{font-weight:900;font-size:17px}
+.step .hint{font-size:11px;color:var(--sub);margin-left:auto;font-family:'JetBrains Mono',monospace}
+/* DROP */
+.drop{border:2px dashed var(--line2);background:var(--panel);padding:42px 22px;text-align:center;cursor:pointer;transition:.15s;border-radius:6px}
+.drop:hover,.drop.over{border-color:var(--accent);background:#1a1410}
+.drop .big{font-family:'Anton',sans-serif;font-size:20px;letter-spacing:.02em}
+.drop .small{color:var(--sub);font-size:12px;margin-top:7px;font-family:'JetBrains Mono',monospace}
+.drop input{display:none}
+.fileinfo{display:none;margin-top:12px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ok)}
+/* TABS (sheets) */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px}
+.tab{background:var(--panel);border:1px solid var(--line2);color:var(--sub);padding:7px 14px;cursor:pointer;font-weight:700;font-size:13px;border-radius:4px;transition:.1s}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* PANEL */
+.panel{background:var(--panel);border:1px solid var(--line);padding:18px;border-radius:6px}
+.grid2{display:grid;grid-template-columns:340px 1fr;gap:18px}
+@media(max-width:920px){.grid2{grid-template-columns:1fr}}
+.fieldrow{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.fieldrow label{font-size:12px;color:var(--sub);font-weight:700;min-width:96px}
+select,input[type=text],input[type=number]{background:#0b0f14;border:1px solid var(--line2);color:var(--ink);padding:8px 10px;font-family:'Noto Sans JP',sans-serif;font-size:13px;border-radius:4px}
+select:focus,input:focus{outline:none;border-color:var(--accent2)}
+.autotag{font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--warn);border:1px solid var(--warn);padding:2px 6px;border-radius:3px}
+/* STORE LIST */
+.storesearch{width:100%;margin-bottom:10px}
+.storehead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.storehead .mini{font-size:11px;color:var(--accent2);font-family:'JetBrains Mono',monospace;cursor:pointer;text-decoration:underline}
+.storehead .cnt{margin-left:auto;font-size:11px;color:var(--sub);font-family:'JetBrains Mono',monospace}
+.storelist{display:flex;flex-direction:column;gap:1px;max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:4px}
+.store-item{display:flex;align-items:center;gap:9px;padding:6px 11px;cursor:pointer;font-size:13px}
+.store-item:hover{background:var(--panel2)}
+.store-item input{accent-color:var(--accent);width:15px;height:15px}
+.store-item.on{background:#1a1410}
+.store-item .lv{font-size:9px;font-family:'JetBrains Mono',monospace;padding:1px 5px;border-radius:3px;margin-left:auto}
+.lv-branch{background:#1f3a2a;color:var(--ok)}
+.lv-area{background:#3a2a1f;color:var(--warn)}
+.lv-group{background:#2a2233;color:#b392f0}
+/* COLUMN SELECT */
+.colmode{display:flex;gap:0;margin-bottom:14px;border-radius:4px;overflow:hidden}
+.colmode button{flex:1;background:#0b0f14;border:1px solid var(--line2);color:var(--sub);padding:9px;cursor:pointer;font-weight:700;font-size:12px}
+.colmode button.on{background:var(--accent2);color:#04141f;border-color:var(--accent2)}
+.collist{display:none;flex-direction:column;gap:1px;max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:4px;margin-top:4px}
+.collist.show{display:flex}
+.col-item{display:flex;align-items:center;gap:8px;padding:6px 11px;cursor:pointer;font-size:12px;font-family:'JetBrains Mono',monospace}
+.col-item:hover{background:var(--panel2)}
+.col-item input{accent-color:var(--accent2);width:14px;height:14px}
+/* ACTION */
+.actionbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:24px 0 10px;padding:16px 18px;background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.count{font-family:'Anton',sans-serif;font-size:14px}
+.count b{color:var(--accent);font-size:24px}
+.count .of{color:var(--sub);font-size:12px;font-family:'JetBrains Mono',monospace;font-weight:400}
+.btns{margin-left:auto;display:flex;gap:9px;flex-wrap:wrap}
+.btn{font-family:'Anton',sans-serif;font-size:13px;letter-spacing:.03em;padding:12px 20px;border:none;cursor:pointer;border-radius:4px;transition:.12s;text-transform:uppercase}
+.btn-csv{background:var(--accent);color:#fff}
+.btn-xlsx{background:var(--ok);color:#04140a}
+.btn-reset{background:transparent;color:var(--sub);border:1px solid var(--line2)}
+.btn-reset:hover{color:var(--ink);border-color:var(--ink)}
+.btn-reset2{background:transparent;color:var(--warn);border:1px solid var(--warn)}
+.btn-reset2:hover{background:var(--warn);color:#1a1200}
+.btn:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.btn:disabled{opacity:.3;cursor:not-allowed;transform:none;box-shadow:none}
+/* PREVIEW */
+.preview{margin-top:6px;border:1px solid var(--line);overflow:auto;max-height:460px;background:var(--panel);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:11px;font-family:'JetBrains Mono',monospace}
+th{background:#0b0f14;color:var(--accent2);text-align:left;padding:8px 10px;position:sticky;top:0;white-space:nowrap;border-bottom:2px solid var(--accent2);font-weight:700}
+td{padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.storecell{color:var(--ink);font-weight:700;position:sticky;left:0;background:var(--panel)}
+tr:hover td{background:var(--panel2)}
+.empty{padding:42px;text-align:center;color:var(--sub);font-family:'JetBrains Mono',monospace}
+.hidden{display:none}
+.notice{background:#1a1410;border:1px solid var(--warn);border-radius:4px;padding:10px 14px;font-size:12px;color:var(--warn);margin-bottom:14px;display:flex;gap:8px;align-items:flex-start}
+footer{margin:44px 0 22px;text-align:center;color:var(--sub);font-size:11px;font-family:'JetBrains Mono',monospace;letter-spacing:.08em}
+.privacy{display:inline-block;border:1px solid var(--line2);padding:4px 10px;margin-top:8px;color:var(--ok);border-radius:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">
+    <h1>STORE<em>/</em>PICKER</h1>
+    <span class="ja">テンポ チュウシュツ ツール</span>
+  </div>
+  <div class="tagline">フォーマットが毎回変わってもOK ・ <b>店舗名を自動検出</b> → 選んで抽出 → CSV/Excel出力 ・ データは端末内で完結</div>
+</header>
+
+<!-- STEP1 LOAD -->
+<div class="step"><span class="num">1</span><span class="t">ファイルを読み込む</span><span class="hint">.xlsx / .xls / .csv</span></div>
+<div class="drop" id="drop">
+  <div class="big">ファイルをドラッグ＆ドロップ</div>
+  <div class="small">または クリックして選択</div>
+  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+  <div class="fileinfo" id="fileinfo"></div>
+</div>
+
+<!-- STEP2 CONFIG -->
+<div id="config" class="hidden">
+  <div class="step"><span class="num">2</span><span class="t">シートと構造を確認</span><span class="hint">自動推定 → 必要なら調整</span></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="panel" style="margin-bottom:18px">
+    <div class="notice" id="autoNotice">
+      <span>⚙</span>
+      <span id="autoNoticeText">店舗名の列とヘッダー行を自動推定しました。下の表示が想定とずれている場合だけ、ここで調整してください。</span>
+    </div>
+    <div class="fieldrow">
+      <label>店舗名の列 <span class="autotag">AUTO</span></label>
+      <select id="storeColSel" onchange="redetect()"></select>
+      <label style="min-width:auto">ヘッダー行（最後）</label>
+      <input type="number" id="headerRowInput" min="1" style="width:80px" onchange="redetect()">
+      <span style="font-size:11px;color:var(--sub);font-family:'JetBrains Mono',monospace">←この行までを見出しとして出力に付けます</span>
+    </div>
+  </div>
+
+  <div class="step"><span class="num">3</span><span class="t">抽出する店舗を選ぶ</span><span class="hint">検索＆チェック</span></div>
+  <div class="grid2">
+    <div class="panel">
+      <input type="text" class="storesearch" id="storeSearch" placeholder="🔍 店舗名で絞り込み（例: 静岡）" oninput="renderStores()">
+      <div class="storehead">
+        <span class="mini" onclick="selectVisible(true)">表示中を全選択</span>
+        <span class="mini" onclick="selectVisible(false)">全解除</span>
+        <span class="cnt" id="storeCnt"></span>
+      </div>
+      <div class="storelist" id="storelist"></div>
+    </div>
+    <div class="panel">
+      <strong style="font-size:13px;display:block;margin-bottom:10px">▸ 出力する列</strong>
+      <div class="colmode">
+        <button id="modeAll" class="on" onclick="setColMode('all')">全列そのまま出力（レイアウト維持）</button>
+        <button id="modePick" onclick="setColMode('pick')">必要な項目だけ選ぶ</button>
+      </div>
+      <div class="storehead" id="colTools" style="display:none">
+        <span class="mini" onclick="toggleAllCols(true)">全選択</span>
+        <span class="mini" onclick="toggleAllCols(false)">全解除</span>
+      </div>
+      <div class="collist" id="collist"></div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULT -->
+<div id="resultArea" class="hidden">
+  <div class="actionbar">
+    <div class="count"><b id="hitCount">0</b> 店舗 <span class="of" id="ofCount"></span></div>
+    <div class="btns">
+      <button class="btn btn-reset" id="clearSel" onclick="clearSelection()">選択クリア</button>
+      <button class="btn btn-reset2" id="resetAll" onclick="resetAll()">全リセット</button>
+      <button class="btn btn-csv" id="dlCsv" onclick="download('csv')">CSV出力</button>
+      <button class="btn btn-xlsx" id="dlXlsx" onclick="download('xlsx')">Excel出力</button>
+    </div>
+  </div>
+  <div class="preview" id="preview"></div>
+</div>
+
+<footer>
+  STORE/PICKER — built for 静岡Branch ・ 全処理ブラウザ内完結
+  <br><span class="privacy">🔒 NO UPLOAD ・ データはサーバーに送信されません</span>
+</footer>
+</div>
+
+<script>
+let WB=null, SHEETS=[], CUR='', GRID=[], STORECOL=0, HEADERROW=1, COLMODE='all';
+let STORE_CHECK={}, COL_CHECK={};
+
+/* ---- FILE ---- */
+const drop=document.getElementById('drop'), fi=document.getElementById('fileInput');
+drop.onclick=()=>fi.click();
+['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
+drop.addEventListener('drop',e=>{if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0])});
+fi.onchange=e=>{if(e.target.files[0])loadFile(e.target.files[0])};
+
+function loadFile(file){
+  const fr=new FileReader();
+  fr.onload=ev=>{
+    try{
+      WB=XLSX.read(ev.target.result,{type:'array'});
+      SHEETS=WB.SheetNames;
+      const info=document.getElementById('fileinfo');
+      info.style.display='block';
+      info.textContent='✓ '+file.name+'  ('+(file.size/1024).toFixed(1)+' KB) ・ '+SHEETS.length+'シート';
+      renderTabs();
+      selectSheet(SHEETS[0]);
+      document.getElementById('config').classList.remove('hidden');
+      document.getElementById('resultArea').classList.remove('hidden');
+    }catch(err){alert('読み込みエラー: '+err.message)}
+  };
+  fr.readAsArrayBuffer(file);
+}
+
+function renderTabs(){
+  document.getElementById('tabs').innerHTML=SHEETS.map(s=>
+    `<button class="tab${s===CUR?' on':''}" onclick="selectSheet('${s.replace(/'/g,"\\'")}')">${escapeHtml(s)}</button>`).join('');
+}
+
+function selectSheet(name){
+  CUR=name;
+  const ws=WB.Sheets[name];
+  GRID=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false}).map(r=>r.map(c=>c===null?'':c));
+  renderTabs();
+  autoDetect();           // 店舗列・ヘッダー行を推定
+  STORE_CHECK={}; COL_CHECK={};
+  buildStoreColSelect();
+  buildColumns();
+  renderStores();
+  apply();
+}
+
+/* ---- AUTO DETECT ----
+   店舗名列: エラー値(#DIV/0等)は数値扱いにした上で、文字列が多く・日本語/店舗キーワードを含み・値の重複が少ない列を選ぶ。
+   ヘッダー行: 店舗列で最初に“見出しらしい値”が始まる手前まで＝数値行が始まる直前を境界にする。 */
+const ERRVALS=['#DIV/0','#REF','#N/A','#VALUE','#NAME','#NULL','#NUM'];
+function isErr(v){return typeof v==='string'&&ERRVALS.some(e=>v.indexOf(e)>=0);}
+function isNum(v){
+  if(isErr(v))return true; // Excelのエラー値は本来数値が入る列なので数値扱い
+  if(typeof v==='number')return true;
+  if(typeof v==='string'&&v.trim()!==''){return !isNaN(parseFloat(v.replace(/,/g,'')))&&isFinite(v.replace(/,/g,''))}
+  return false;
+}
+function hasJP(v){return typeof v==='string'&&/[ぁ-んァ-ヶ一-龠]/.test(v);}
+function autoDetect(){
+  const ncol=Math.max(...GRID.map(r=>r.length),0);
+  let best=-1,bestScore=-1e9;
+  for(let c=0;c<ncol;c++){
+    const txt=[];let n=0;
+    for(const row of GRID){
+      const v=row[c];
+      if(v===''||v==null)continue;
+      if(isNum(v))n++; else txt.push(String(v));
+    }
+    if(txt.length===0)continue;
+    const jp=txt.filter(hasJP).length;
+    const kw=txt.filter(v=>/Branch|地域|店|グループ|ブロック|クリニック|CL/.test(v)).length;
+    const uniq=new Set(txt).size;
+    // 文字列多・数値少 ＋ 日本語 ＋ 店舗キーワード ＋ ユニーク度 を加点
+    const score=(txt.length-n)+jp*2+kw*3+uniq*0.5;
+    if(score>bestScore){bestScore=score;best=c;}
+  }
+  STORECOL=best<0?0:best;
+  // ヘッダー行: 店舗列で値が入っている最初の行の手前まで。
+  // ＝GRIDの先頭から「店舗列にテキストが入り、かつ他列に数値が並ぶ行」が出る直前。
+  let hr=1;
+  for(let r=0;r<GRID.length;r++){
+    const sv=GRID[r][STORECOL];
+    const others=GRID[r].filter((v,i)=>i!==STORECOL&&v!==''&&v!=null);
+    const numRatio=others.length?others.filter(isNum).length/others.length:0;
+    if(sv!==''&&sv!=null&&!isNum(sv)&&numRatio>=0.5){ hr=r; break; } // この行が最初のデータ行 → 手前までが見出し
+  }
+  HEADERROW=Math.max(hr,1); // 1始まり相当の「見出し最終行」index(=データ開始行index)
+}
+
+function buildStoreColSelect(){
+  const ncol=Math.max(...GRID.map(r=>r.length),0);
+  const sel=document.getElementById('storeColSel');
+  let opts='';
+  for(let c=0;c<ncol;c++){
+    // 列の代表サンプル（最初の非空テキスト）
+    let sample='';
+    for(const row of GRID){if(row[c]!==''&&row[c]!=null&&!isNum(row[c])){sample=String(row[c]);break;}}
+    opts+=`<option value="${c}" ${c===STORECOL?'selected':''}>列${c+1}${sample?'（例: '+escapeHtml(sample.slice(0,14))+'）':''}</option>`;
+  }
+  sel.innerHTML=opts;
+  document.getElementById('headerRowInput').value=HEADERROW; // データ開始行index＝見出し行数
+}
+
+function redetect(){
+  STORECOL=parseInt(document.getElementById('storeColSel').value);
+  HEADERROW=Math.max(parseInt(document.getElementById('headerRowInput').value)||1,1);
+  STORE_CHECK={}; COL_CHECK={};
+  buildColumns(); renderStores(); apply();
+}
+
+/* ---- STORE LIST ---- */
+function classifyLevel(name){
+  if(/Branch|ブランチ/.test(name))return['lv-branch','店舗'];
+  if(/地域|エリア/.test(name))return['lv-area','地域'];
+  if(/G$|グループ|ブロック|ALL|総計|合計|全社/.test(name))return['lv-group','集計'];
+  return['lv-branch',''];
+}
+function dataRows(){return GRID.slice(HEADERROW);} // 見出し以降
+function uniqueStores(){
+  const seen=[],idx=[];
+  dataRows().forEach((row,i)=>{
+    const v=row[STORECOL];
+    if(v!==''&&v!=null&&!isNum(v)){ seen.push(String(v)); idx.push(HEADERROW+i); }
+  });
+  return seen.map((name,k)=>({name,rowIdx:idx[k]}));
+}
+function renderStores(){
+  const q=document.getElementById('storeSearch').value.trim().toLowerCase();
+  const all=uniqueStores();
+  const list=document.getElementById('storelist');
+  const shown=all.filter(s=>!q||s.name.toLowerCase().includes(q));
+  list.innerHTML=shown.map(s=>{
+    const[cls,lbl]=classifyLevel(s.name);
+    const on=STORE_CHECK[s.rowIdx]?'on':'';
+    return `<label class="store-item ${on}">
+      <input type="checkbox" ${STORE_CHECK[s.rowIdx]?'checked':''} onchange="toggleStore(${s.rowIdx},this.checked)">
+      <span>${escapeHtml(s.name)}</span>
+      ${lbl?`<span class="lv ${cls}">${lbl}</span>`:''}
+    </label>`;
+  }).join('')||'<div class="empty">該当なし</div>';
+  const selCount=Object.values(STORE_CHECK).filter(Boolean).length;
+  document.getElementById('storeCnt').textContent=`表示${shown.length} / 全${all.length} ・ 選択${selCount}`;
+}
+function toggleStore(idx,on){STORE_CHECK[idx]=on;renderStores();apply();}
+function selectVisible(on){
+  const q=document.getElementById('storeSearch').value.trim().toLowerCase();
+  uniqueStores().filter(s=>!q||s.name.toLowerCase().includes(q)).forEach(s=>STORE_CHECK[s.rowIdx]=on);
+  renderStores();apply();
+}
+
+/* ---- COLUMNS ---- */
+function headerLabels(){
+  // 見出し行（複数行)を結合して列ラベルを作る。空は上位行の値を引き継ぎ
+  const ncol=Math.max(...GRID.map(r=>r.length),0);
+  const labels=[];
+  for(let c=0;c<ncol;c++){
+    const parts=[];
+    for(let r=0;r<HEADERROW;r++){const v=GRID[r]&&GRID[r][c];if(v!==''&&v!=null)parts.push(String(v));}
+    labels.push(parts.join(' / ')||`列${c+1}`);
+  }
+  return labels;
+}
+function buildColumns(){
+  const labels=headerLabels();
+  const ncol=labels.length;
+  const list=document.getElementById('collist');
+  let html='';
+  for(let c=0;c<ncol;c++){
+    if(c===STORECOL)continue; // 店舗列は常に含むので選択肢から除外
+    if(COL_CHECK[c]===undefined)COL_CHECK[c]=true;
+    html+=`<label class="col-item"><input type="checkbox" ${COL_CHECK[c]?'checked':''} onchange="COL_CHECK[${c}]=this.checked;apply()"> ${escapeHtml(labels[c])}</label>`;
+  }
+  list.innerHTML=html;
+}
+function setColMode(m){
+  COLMODE=m;
+  document.getElementById('modeAll').classList.toggle('on',m==='all');
+  document.getElementById('modePick').classList.toggle('on',m==='pick');
+  document.getElementById('collist').classList.toggle('show',m==='pick');
+  document.getElementById('colTools').style.display=m==='pick'?'flex':'none';
+  apply();
+}
+function toggleAllCols(on){
+  document.querySelectorAll('#collist input').forEach(c=>c.checked=on);
+  const labels=headerLabels();for(let c=0;c<labels.length;c++)if(c!==STORECOL)COL_CHECK[c]=on;
+  apply();
+}
+function outputCols(){
+  const ncol=Math.max(...GRID.map(r=>r.length),0);
+  const cols=[STORECOL]; // 先頭は必ず店舗名
+  for(let c=0;c<ncol;c++){
+    if(c===STORECOL)continue;
+    if(COLMODE==='all'||COL_CHECK[c])cols.push(c);
+  }
+  return cols;
+}
+
+/* ---- APPLY / PREVIEW ---- */
+let RESULT_ROWS=[],OUT_COLS=[],OUT_LABELS=[];
+function apply(){
+  OUT_COLS=outputCols();
+  OUT_LABELS=headerLabels();
+  const picked=uniqueStores().filter(s=>STORE_CHECK[s.rowIdx]);
+  RESULT_ROWS=picked.map(s=>GRID[s.rowIdx]);
+  renderPreview();
+  document.getElementById('hitCount').textContent=picked.length;
+  document.getElementById('ofCount').textContent='/ '+uniqueStores().length+' 店舗中 ・ '+CUR;
+  const none=picked.length===0;
+  document.getElementById('dlCsv').disabled=none;
+  document.getElementById('dlXlsx').disabled=none;
+}
+function renderPreview(){
+  const p=document.getElementById('preview');
+  if(!RESULT_ROWS.length){p.innerHTML='<div class="empty">抽出する店舗を選んでください</div>';return;}
+  const head='<tr>'+OUT_COLS.map((c,i)=>'<th>'+escapeHtml(i===0?'店舗名':OUT_LABELS[c])+'</th>').join('')+'</tr>';
+  const body=RESULT_ROWS.slice(0,80).map(row=>'<tr>'+OUT_COLS.map((c,i)=>
+    `<td${i===0?' class="storecell"':''}>`+escapeHtml(String(row[c]??''))+'</td>').join('')+'</tr>').join('');
+  p.innerHTML='<table>'+head+body+'</table>';
+}
+
+/* ---- RESET ---- */
+// 選択クリア: ファイル・シートはそのまま、店舗チェック/列選択/検索だけ初期化
+function clearSelection(){
+  STORE_CHECK={}; COL_CHECK={};
+  document.getElementById('storeSearch').value='';
+  setColMode('all');           // 列モードも初期(全列)に戻す
+  buildColumns(); renderStores(); apply();
+}
+// 全リセット: ファイルごと破棄して最初の画面に戻す
+function resetAll(){
+  if(!confirm('読み込んだファイルを破棄して最初に戻します。よろしいですか？'))return;
+  WB=null; SHEETS=[]; CUR=''; GRID=[]; STORECOL=0; HEADERROW=1; COLMODE='all';
+  STORE_CHECK={}; COL_CHECK={};
+  fi.value='';                 // ファイル入力をクリア（同じファイルを選び直せるように）
+  document.getElementById('storeSearch').value='';
+  document.getElementById('fileinfo').style.display='none';
+  document.getElementById('tabs').innerHTML='';
+  document.getElementById('config').classList.add('hidden');
+  document.getElementById('resultArea').classList.add('hidden');
+}
+
+/* ---- DOWNLOAD ---- */
+function buildAOA(){
+  const aoa=[];
+  // 見出し行（HEADERROW行分）を、選択列ぶんだけ付ける
+  for(let r=0;r<HEADERROW;r++){aoa.push(OUT_COLS.map(c=>GRID[r]?(GRID[r][c]??''):''));}
+  // データ行
+  RESULT_ROWS.forEach(row=>aoa.push(OUT_COLS.map(c=>row[c]??'')));
+  return aoa;
+}
+function download(type){
+  if(!RESULT_ROWS.length)return;
+  const aoa=buildAOA();
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  const stamp=new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const base=`店舗抽出_${CUR}_${stamp}`;
+  if(type==='csv'){
+    const csv=XLSX.utils.sheet_to_csv(ws);
+    const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=base+'.csv';a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  }else{
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,CUR.slice(0,28)||'抽出');
+    XLSX.writeFile(wb,base+'.xlsx');
+  }
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+if('serviceWorker' in navigator){navigator.serviceWorker.register('service-worker.js').catch(()=>{});}
+</script>
+</body>
+</html>
