@@ -42,6 +42,16 @@ header::after{content:'';position:absolute;right:-40px;top:-20px;width:280px;hei
 .tab{background:var(--panel);border:1px solid var(--line2);color:var(--sub);padding:7px 14px;cursor:pointer;font-weight:700;font-size:13px;border-radius:4px;transition:.1s}
 .tab:hover{color:var(--ink)}
 .tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* FILE TABS (上段) */
+.filetabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--line2)}
+.filetab{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line2);color:var(--ink);padding:8px 12px;cursor:pointer;font-weight:700;font-size:13px;border-radius:5px;transition:.1s;max-width:280px}
+.filetab:hover{border-color:var(--accent2)}
+.filetab.on{background:var(--accent2);color:#04141f;border-color:var(--accent2)}
+.filetab .fname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.filetab .badge{font-size:9px;font-family:'JetBrains Mono',monospace;background:rgba(0,0,0,.25);padding:1px 5px;border-radius:3px;flex-shrink:0}
+.filetab.on .badge{background:rgba(0,0,0,.18)}
+.filetab .x{flex-shrink:0;opacity:.6;font-weight:900;padding:0 2px}
+.filetab .x:hover{opacity:1;color:var(--accent)}
 /* PANEL */
 .panel{background:var(--panel);border:1px solid var(--line);padding:18px;border-radius:6px}
 .grid2{display:grid;grid-template-columns:340px 1fr;gap:18px}
@@ -115,17 +125,18 @@ footer{margin:44px 0 22px;text-align:center;color:var(--sub);font-size:11px;font
 </header>
 
 <!-- STEP1 LOAD -->
-<div class="step"><span class="num">1</span><span class="t">ファイルを読み込む</span><span class="hint">.xlsx / .xls / .csv</span></div>
+<div class="step"><span class="num">1</span><span class="t">ファイルを読み込む</span><span class="hint">複数可 ・ .xlsx / .xls / .csv</span></div>
 <div class="drop" id="drop">
   <div class="big">ファイルをドラッグ＆ドロップ</div>
-  <div class="small">または クリックして選択</div>
-  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls">
+  <div class="small">複数まとめて選択OK ・ または クリックして選択</div>
+  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" multiple>
   <div class="fileinfo" id="fileinfo"></div>
 </div>
 
 <!-- STEP2 CONFIG -->
 <div id="config" class="hidden">
-  <div class="step"><span class="num">2</span><span class="t">シートと構造を確認</span><span class="hint">自動推定 → 必要なら調整</span></div>
+  <div class="step"><span class="num">2</span><span class="t">ファイルとシートを選ぶ</span><span class="hint">上段=ファイル / 下段=シート</span></div>
+  <div class="filetabs" id="filetabs"></div>
   <div class="tabs" id="tabs"></div>
   <div class="panel" style="margin-bottom:18px">
     <div class="notice" id="autoNotice">
@@ -188,47 +199,97 @@ footer{margin:44px 0 22px;text-align:center;color:var(--sub);font-size:11px;font
 </div>
 
 <script>
-let WB=null, SHEETS=[], CUR='', GRID=[], STORECOL=0, HEADERROW=1, COLMODE='all';
-let STORE_CHECK={}, COL_CHECK={};
+/* ===== 状態管理 =====
+   FILES: ファイルごとの状態を配列で保持。別種ファイルが混ざっても各自が独立して
+   「店舗列・ヘッダー行・店舗選択・列選択・現在シート」を覚える。
+   各要素 = {name, wb, sheets, sheetStates:{シート名: {grid,storeCol,headerRow,colMode,storeCheck,colCheck}}, curSheet}
+   CURF: 現在表示中のファイルindex。 */
+let FILES=[], CURF=-1;
+// 現在のファイル/シート状態への参照（描画・抽出ロジックはこれ越しに動く）
+function F(){return FILES[CURF];}
+function S(){const f=F();return f?f.sheetStates[f.curSheet]:null;}
+// 互換用ゲッター（既存ロジックがGRID等を直接参照しているため橋渡し）
+function curState(){return S();}
 
 /* ---- FILE ---- */
 const drop=document.getElementById('drop'), fi=document.getElementById('fileInput');
 drop.onclick=()=>fi.click();
 ['dragover','dragenter'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over')}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over')}));
-drop.addEventListener('drop',e=>{if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0])});
-fi.onchange=e=>{if(e.target.files[0])loadFile(e.target.files[0])};
+drop.addEventListener('drop',e=>{if(e.dataTransfer.files.length)loadFiles(e.dataTransfer.files)});
+fi.onchange=e=>{if(e.target.files.length)loadFiles(e.target.files)};
 
-function loadFile(file){
-  const fr=new FileReader();
-  fr.onload=ev=>{
-    try{
-      WB=XLSX.read(ev.target.result,{type:'array'});
-      SHEETS=WB.SheetNames;
-      const info=document.getElementById('fileinfo');
-      info.style.display='block';
-      info.textContent='✓ '+file.name+'  ('+(file.size/1024).toFixed(1)+' KB) ・ '+SHEETS.length+'シート';
-      renderTabs();
-      selectSheet(SHEETS[0]);
-      document.getElementById('config').classList.remove('hidden');
-      document.getElementById('resultArea').classList.remove('hidden');
-    }catch(err){alert('読み込みエラー: '+err.message)}
-  };
-  fr.readAsArrayBuffer(file);
+function loadFiles(fileList){
+  const arr=[...fileList];
+  let pending=arr.length;
+  arr.forEach(file=>{
+    const fr=new FileReader();
+    fr.onload=ev=>{
+      try{
+        const wb=XLSX.read(ev.target.result,{type:'array'});
+        // 同名ファイルは上書き
+        const existing=FILES.findIndex(f=>f.name===file.name);
+        const fileObj={name:file.name, size:file.size, wb, sheets:wb.SheetNames, sheetStates:{}, curSheet:wb.SheetNames[0]};
+        if(existing>=0)FILES[existing]=fileObj; else FILES.push(fileObj);
+        CURF=existing>=0?existing:FILES.length-1;
+      }catch(err){alert(file.name+' の読み込みエラー: '+err.message)}
+      if(--pending===0)afterLoad();
+    };
+    fr.readAsArrayBuffer(file);
+  });
+  fi.value=''; // 同じファイルを選び直せるようにクリア
+}
+function afterLoad(){
+  document.getElementById('fileinfo').style.display='block';
+  document.getElementById('fileinfo').textContent='✓ '+FILES.length+'ファイル読込済み';
+  document.getElementById('config').classList.remove('hidden');
+  document.getElementById('resultArea').classList.remove('hidden');
+  renderFileTabs();
+  selectFile(CURF);
+}
+
+function renderFileTabs(){
+  document.getElementById('filetabs').innerHTML=FILES.map((f,i)=>
+    `<div class="filetab${i===CURF?' on':''}" onclick="selectFile(${i})">
+       <span class="fname">${escapeHtml(f.name)}</span>
+       <span class="badge">${f.sheets.length}シート</span>
+       <span class="x" onclick="event.stopPropagation();removeFile(${i})">✕</span>
+     </div>`).join('');
+}
+function selectFile(i){
+  CURF=i;
+  const f=F();
+  renderFileTabs();
+  selectSheet(f.curSheet);
+}
+function removeFile(i){
+  FILES.splice(i,1);
+  if(FILES.length===0){resetAll();return;}
+  if(CURF>=FILES.length)CURF=FILES.length-1;
+  else if(CURF>i)CURF--;
+  renderFileTabs();
+  selectFile(CURF);
 }
 
 function renderTabs(){
-  document.getElementById('tabs').innerHTML=SHEETS.map(s=>
-    `<button class="tab${s===CUR?' on':''}" onclick="selectSheet('${s.replace(/'/g,"\\'")}')">${escapeHtml(s)}</button>`).join('');
+  const f=F();if(!f)return;
+  document.getElementById('tabs').innerHTML=f.sheets.map(s=>
+    `<button class="tab${s===f.curSheet?' on':''}" onclick="selectSheet('${s.replace(/'/g,"\\'")}')">${escapeHtml(s)}</button>`).join('');
 }
 
 function selectSheet(name){
-  CUR=name;
-  const ws=WB.Sheets[name];
-  GRID=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false}).map(r=>r.map(c=>c===null?'':c));
+  const f=F();if(!f)return;
+  f.curSheet=name;
+  // このシートの状態が未作成なら、グリッド読込＋自動推定して初期化
+  if(!f.sheetStates[name]){
+    const ws=f.wb.Sheets[name];
+    const grid=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false}).map(r=>r.map(c=>c===null?'':c));
+    const st={grid,storeCol:0,headerRow:1,colMode:'all',storeCheck:{},colCheck:{}};
+    f.sheetStates[name]=st;
+    autoDetectInto(st);   // 推定結果をstに書き込む
+  }
   renderTabs();
-  autoDetect();           // 店舗列・ヘッダー行を推定
-  STORE_CHECK={}; COL_CHECK={};
+  syncUIFromState();      // 状態→画面（プルダウン・店舗列・ヘッダー行）を反映
   buildStoreColSelect();
   buildColumns();
   renderStores();
@@ -247,12 +308,40 @@ function isNum(v){
   return false;
 }
 function hasJP(v){return typeof v==='string'&&/[ぁ-んァ-ヶ一-龠]/.test(v);}
-function autoDetect(){
-  const ncol=Math.max(...GRID.map(r=>r.length),0);
+
+/* ===== グローバル変数の橋渡し =====
+   既存ロジック(buildColumns/renderStores/apply等)はGRID等のグローバル変数を直接参照する作り。
+   複数ファイル化にあたり、これらを「現在シート状態S()の値」と常に同期させることで、
+   既存ロジックをほぼ変更せずに複数ファイル対応を実現する。 */
+let GRID=[], STORECOL=0, HEADERROW=1, COLMODE='all', STORE_CHECK={}, COL_CHECK={};
+function pullState(){ // 状態→グローバル（描画前に呼ぶ）
+  const st=S();if(!st)return;
+  GRID=st.grid; STORECOL=st.storeCol; HEADERROW=st.headerRow;
+  COLMODE=st.colMode; STORE_CHECK=st.storeCheck; COL_CHECK=st.colCheck;
+}
+function pushState(){ // グローバル→状態（変更後に呼ぶ）
+  const st=S();if(!st)return;
+  st.storeCol=STORECOL; st.headerRow=HEADERROW; st.colMode=COLMODE;
+  st.storeCheck=STORE_CHECK; st.colCheck=COL_CHECK;
+}
+// 状態→UI（プルダウン・列モードボタン等）を反映
+function syncUIFromState(){
+  pullState();
+  document.getElementById('modeAll').classList.toggle('on',COLMODE==='all');
+  document.getElementById('modePick').classList.toggle('on',COLMODE==='pick');
+  document.getElementById('collist').classList.toggle('show',COLMODE==='pick');
+  document.getElementById('colTools').style.display=COLMODE==='pick'?'flex':'none';
+  document.getElementById('storeSearch').value='';
+}
+
+// 推定結果を状態オブジェクトに直接書き込む（グローバルを汚さない）
+function autoDetectInto(st){
+  const grid=st.grid;
+  const ncol=Math.max(...grid.map(r=>r.length),0);
   let best=-1,bestScore=-1e9;
   for(let c=0;c<ncol;c++){
     const txt=[];let n=0;
-    for(const row of GRID){
+    for(const row of grid){
       const v=row[c];
       if(v===''||v==null)continue;
       if(isNum(v))n++; else txt.push(String(v));
@@ -261,21 +350,18 @@ function autoDetect(){
     const jp=txt.filter(hasJP).length;
     const kw=txt.filter(v=>/Branch|地域|店|グループ|ブロック|クリニック|CL/.test(v)).length;
     const uniq=new Set(txt).size;
-    // 文字列多・数値少 ＋ 日本語 ＋ 店舗キーワード ＋ ユニーク度 を加点
     const score=(txt.length-n)+jp*2+kw*3+uniq*0.5;
     if(score>bestScore){bestScore=score;best=c;}
   }
-  STORECOL=best<0?0:best;
-  // ヘッダー行: 店舗列で値が入っている最初の行の手前まで。
-  // ＝GRIDの先頭から「店舗列にテキストが入り、かつ他列に数値が並ぶ行」が出る直前。
+  st.storeCol=best<0?0:best;
   let hr=1;
-  for(let r=0;r<GRID.length;r++){
-    const sv=GRID[r][STORECOL];
-    const others=GRID[r].filter((v,i)=>i!==STORECOL&&v!==''&&v!=null);
+  for(let r=0;r<grid.length;r++){
+    const sv=grid[r][st.storeCol];
+    const others=grid[r].filter((v,i)=>i!==st.storeCol&&v!==''&&v!=null);
     const numRatio=others.length?others.filter(isNum).length/others.length:0;
-    if(sv!==''&&sv!=null&&!isNum(sv)&&numRatio>=0.5){ hr=r; break; } // この行が最初のデータ行 → 手前までが見出し
+    if(sv!==''&&sv!=null&&!isNum(sv)&&numRatio>=0.5){ hr=r; break; }
   }
-  HEADERROW=Math.max(hr,1); // 1始まり相当の「見出し最終行」index(=データ開始行index)
+  st.headerRow=Math.max(hr,1);
 }
 
 function buildStoreColSelect(){
@@ -296,6 +382,7 @@ function redetect(){
   STORECOL=parseInt(document.getElementById('storeColSel').value);
   HEADERROW=Math.max(parseInt(document.getElementById('headerRowInput').value)||1,1);
   STORE_CHECK={}; COL_CHECK={};
+  pushState(); // 新しい選択状態をこのシートに保存
   buildColumns(); renderStores(); apply();
 }
 
@@ -365,6 +452,7 @@ function buildColumns(){
 }
 function setColMode(m){
   COLMODE=m;
+  pushState(); // 列モードをこのシートに保存
   document.getElementById('modeAll').classList.toggle('on',m==='all');
   document.getElementById('modePick').classList.toggle('on',m==='pick');
   document.getElementById('collist').classList.toggle('show',m==='pick');
@@ -395,7 +483,7 @@ function apply(){
   RESULT_ROWS=picked.map(s=>GRID[s.rowIdx]);
   renderPreview();
   document.getElementById('hitCount').textContent=picked.length;
-  document.getElementById('ofCount').textContent='/ '+uniqueStores().length+' 店舗中 ・ '+CUR;
+  document.getElementById('ofCount').textContent='/ '+uniqueStores().length+' 店舗中 ・ '+(F()?F().name+' › '+F().curSheet:'');
   const none=picked.length===0;
   document.getElementById('dlCsv').disabled=none;
   document.getElementById('dlXlsx').disabled=none;
@@ -413,18 +501,20 @@ function renderPreview(){
 // 選択クリア: ファイル・シートはそのまま、店舗チェック/列選択/検索だけ初期化
 function clearSelection(){
   STORE_CHECK={}; COL_CHECK={};
+  pushState();                 // クリア状態をこのシートに保存
   document.getElementById('storeSearch').value='';
-  setColMode('all');           // 列モードも初期(全列)に戻す
+  setColMode('all');           // 列モードも初期(全列)に戻す（内部でpushState）
   buildColumns(); renderStores(); apply();
 }
-// 全リセット: ファイルごと破棄して最初の画面に戻す
+// 全リセット: 全ファイルを破棄して最初の画面に戻す
 function resetAll(){
-  if(!confirm('読み込んだファイルを破棄して最初に戻します。よろしいですか？'))return;
-  WB=null; SHEETS=[]; CUR=''; GRID=[]; STORECOL=0; HEADERROW=1; COLMODE='all';
-  STORE_CHECK={}; COL_CHECK={};
-  fi.value='';                 // ファイル入力をクリア（同じファイルを選び直せるように）
+  if(!confirm('読み込んだ全ファイルを破棄して最初に戻します。よろしいですか？'))return;
+  FILES=[]; CURF=-1;
+  GRID=[]; STORECOL=0; HEADERROW=1; COLMODE='all'; STORE_CHECK={}; COL_CHECK={};
+  fi.value='';
   document.getElementById('storeSearch').value='';
   document.getElementById('fileinfo').style.display='none';
+  document.getElementById('filetabs').innerHTML='';
   document.getElementById('tabs').innerHTML='';
   document.getElementById('config').classList.add('hidden');
   document.getElementById('resultArea').classList.add('hidden');
@@ -444,7 +534,9 @@ function download(type){
   const aoa=buildAOA();
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   const stamp=new Date().toISOString().slice(0,10).replace(/-/g,'');
-  const base=`店舗抽出_${CUR}_${stamp}`;
+  const fname=(F()?F().name.replace(/\.(xlsx|xls|csv)$/i,''):'');
+  const sname=(F()?F().curSheet:'');
+  const base=`店舗抽出_${fname}_${sname}_${stamp}`;
   if(type==='csv'){
     const csv=XLSX.utils.sheet_to_csv(ws);
     const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
@@ -452,7 +544,7 @@ function download(type){
     setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   }else{
     const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,CUR.slice(0,28)||'抽出');
+    XLSX.utils.book_append_sheet(wb,ws,sname.slice(0,28)||'抽出');
     XLSX.writeFile(wb,base+'.xlsx');
   }
 }
