@@ -169,9 +169,11 @@ footer{margin:44px 0 22px;text-align:center;color:var(--sub);font-size:11px;font
         <button id="modeAll" class="on" onclick="setColMode('all')">全列そのまま出力（レイアウト維持）</button>
         <button id="modePick" onclick="setColMode('pick')">必要な項目だけ選ぶ</button>
       </div>
+      <input type="text" class="storesearch" id="colSearch" placeholder="🔍 列名で絞り込み" style="display:none" oninput="renderCols()">
       <div class="storehead" id="colTools" style="display:none">
         <span class="mini" onclick="toggleAllCols(true)">全選択</span>
         <span class="mini" onclick="toggleAllCols(false)">全解除</span>
+        <span class="cnt" id="colCnt"></span>
       </div>
       <div class="collist" id="collist"></div>
     </div>
@@ -331,7 +333,9 @@ function syncUIFromState(){
   document.getElementById('modePick').classList.toggle('on',COLMODE==='pick');
   document.getElementById('collist').classList.toggle('show',COLMODE==='pick');
   document.getElementById('colTools').style.display=COLMODE==='pick'?'flex':'none';
+  document.getElementById('colSearch').style.display=COLMODE==='pick'?'block':'none';
   document.getElementById('storeSearch').value='';
+  document.getElementById('colSearch').value='';
 }
 
 // 推定結果を状態オブジェクトに直接書き込む（グローバルを汚さない）
@@ -439,16 +443,29 @@ function headerLabels(){
   return labels;
 }
 function buildColumns(){
+  // 全列ぶんCOL_CHECKの初期値(既定=選択済)を用意してから描画する
   const labels=headerLabels();
-  const ncol=labels.length;
-  const list=document.getElementById('collist');
-  let html='';
-  for(let c=0;c<ncol;c++){
+  for(let c=0;c<labels.length;c++){
     if(c===STORECOL)continue; // 店舗列は常に含むので選択肢から除外
     if(COL_CHECK[c]===undefined)COL_CHECK[c]=true;
+  }
+  renderCols();
+}
+function renderCols(){
+  const q=document.getElementById('colSearch').value.trim().toLowerCase();
+  const labels=headerLabels();
+  const list=document.getElementById('collist');
+  let html='',shown=0,total=0;
+  for(let c=0;c<labels.length;c++){
+    if(c===STORECOL)continue; // 店舗列は常に含むので選択肢から除外
+    total++;
+    if(q&&!labels[c].toLowerCase().includes(q))continue;
+    shown++;
     html+=`<label class="col-item"><input type="checkbox" ${COL_CHECK[c]?'checked':''} onchange="COL_CHECK[${c}]=this.checked;apply()"> ${escapeHtml(labels[c])}</label>`;
   }
-  list.innerHTML=html;
+  list.innerHTML=html||'<div class="empty">該当なし</div>';
+  const cnt=document.getElementById('colCnt');
+  if(cnt)cnt.textContent=`表示${shown} / 全${total}`;
 }
 function setColMode(m){
   COLMODE=m;
@@ -457,6 +474,7 @@ function setColMode(m){
   document.getElementById('modePick').classList.toggle('on',m==='pick');
   document.getElementById('collist').classList.toggle('show',m==='pick');
   document.getElementById('colTools').style.display=m==='pick'?'flex':'none';
+  document.getElementById('colSearch').style.display=m==='pick'?'block':'none';
   apply();
 }
 function toggleAllCols(on){
@@ -503,6 +521,7 @@ function clearSelection(){
   STORE_CHECK={}; COL_CHECK={};
   pushState();                 // クリア状態をこのシートに保存
   document.getElementById('storeSearch').value='';
+  document.getElementById('colSearch').value='';
   setColMode('all');           // 列モードも初期(全列)に戻す（内部でpushState）
   buildColumns(); renderStores(); apply();
 }
@@ -513,6 +532,7 @@ function resetAll(){
   GRID=[]; STORECOL=0; HEADERROW=1; COLMODE='all'; STORE_CHECK={}; COL_CHECK={};
   fi.value='';
   document.getElementById('storeSearch').value='';
+  document.getElementById('colSearch').value='';
   document.getElementById('fileinfo').style.display='none';
   document.getElementById('filetabs').innerHTML='';
   document.getElementById('tabs').innerHTML='';
